@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS engrams (
     content       TEXT    NOT NULL,
     embedding     BLOB,                -- sqlite-vec vector field
     emotion       TEXT    NOT NULL DEFAULT 'neutral'
-                         CHECK (emotion IN ('joy', 'sadness', 'anger', 'trust', 'neutral')),
+                         CHECK (emotion IN (
+                             'neutral',
+                             'joy', 'sadness', 'trust', 'disgust',
+                             'fear', 'anger', 'surprise', 'anticipation',
+                             'contempt'
+                         )),
     importance    REAL    NOT NULL DEFAULT 0.0 CHECK (importance >= 0.0 AND importance <= 1.0),
     access_count  INTEGER NOT NULL DEFAULT 0,
     last_accessed TEXT,

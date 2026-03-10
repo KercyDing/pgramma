@@ -8,5 +8,12 @@ dependencies = [
     "instructor>=1.14.5",
     "jupyter>=1.1.1",
     "openai>=2.26.0",
+    "plotly>=6.6.0",
     "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+]
+
+[dependency-groups]
+dev = [
+    "nbstripout>=0.9.1",
 ]

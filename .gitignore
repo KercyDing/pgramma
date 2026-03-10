@@ -6,3 +6,6 @@ notebooks/.venv/
 notebooks/dummy_data/*.db
 *.pgram
 INSTRUCT.md
+.env
+docs/specs/
+docs/plans/
