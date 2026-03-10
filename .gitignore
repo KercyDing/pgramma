@@ -1,0 +1,8 @@
+/target
+.venv/
+__pycache__/
+*.pyc
+notebooks/.venv/
+notebooks/dummy_data/*.db
+*.pgram
+INSTRUCT.md
