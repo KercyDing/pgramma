@@ -5,6 +5,7 @@ __pycache__/
 notebooks/.venv/
 notebooks/dummy_data/*.db
 *.pgram
+*.log
 INSTRUCT.md
 .env
 docs/specs/

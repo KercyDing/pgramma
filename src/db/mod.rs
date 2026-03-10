@@ -122,7 +122,7 @@ impl PgramDb {
         &self,
         content: &str,
         emotion: Emotion,
-        importance: f64,
+        importance: f32,
         embedding: Option<&[f32]>,
     ) -> Result<i64> {
         let id = self.next_id("engrams")?;
@@ -149,7 +149,7 @@ impl PgramDb {
     }
 
     /// Fetch all engrams with importance >= threshold.
-    pub fn get_engrams_above(&self, threshold: f64) -> Result<Vec<Engram>> {
+    pub fn get_engrams_above(&self, threshold: f32) -> Result<Vec<Engram>> {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(ENGRAMS_TABLE)?;
         let mut results = Vec::new();
@@ -207,6 +207,20 @@ impl PgramDb {
         }
         txn.commit()?;
         Ok(removed)
+    }
+
+    /// Get the most recently inserted engram, if any.
+    pub fn get_latest_engram(&self) -> Result<Option<Engram>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(ENGRAMS_TABLE)?;
+        match table.iter()?.next_back() {
+            Some(item) => {
+                let item = item?;
+                let engram: Engram = decode(item.1.value())?;
+                Ok(Some(engram))
+            }
+            None => Ok(None),
+        }
     }
 }
 

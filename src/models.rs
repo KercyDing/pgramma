@@ -110,7 +110,7 @@ pub struct Engram {
     pub content: String,
     pub embedding: Option<Vec<f32>>,
     pub emotion: Emotion,
-    pub importance: f64,
+    pub importance: f32,
     pub access_count: i64,
     pub last_accessed: Option<String>,
     pub created_at: String,
