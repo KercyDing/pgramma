@@ -11,6 +11,7 @@ use crate::db::PgramDb;
 use crate::llm::{self, LlmClient};
 use crate::memory::{self, embedder::Embedder};
 use crate::models::Emotion;
+use crate::persona;
 
 /// Shared application state threaded through all functions.
 struct App {
@@ -160,6 +161,15 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
         }
     };
 
+    let persona_prompt_suffix = match persona::build_prompt_suffix(&app.db) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let _ = writeln!(app.log.lock().unwrap(), "[{ts}] persona load error: {e}");
+            None
+        }
+    };
+
     print!("→ ");
     std::io::stdout().flush().ok();
     let reply = match llm::chat_stream(
@@ -167,6 +177,7 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
         &app.db,
         input,
         &app.system_prompt,
+        persona_prompt_suffix.as_deref(),
         &memories,
         app.config.chat.context_window,
     )
@@ -184,6 +195,8 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
     let log2 = Arc::clone(&app.log);
     let embedder2 = Arc::clone(&app.embedder);
     let chat_text = format!("User: {input}\nAssistant: {reply}");
+    let engram_text = format!("User: {input}");
+    let assistant_reply_owned = reply;
     let user_input_owned = input.to_owned();
     let context_for_eval: Vec<String> = recent_turns.clone();
     let lifecycle_cfg = app.config.lifecycle.clone();
@@ -221,8 +234,12 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
 
                 let embedding = embedder2.embed(&user_input_owned).ok();
 
-                match db2.insert_engram(&chat_text, emotion, score.importance, embedding.as_deref())
-                {
+                match db2.insert_engram(
+                    &engram_text,
+                    emotion,
+                    score.importance,
+                    embedding.as_deref(),
+                ) {
                     Ok(id) => {
                         let _ = writeln!(
                             log2.lock().unwrap(),
@@ -233,6 +250,13 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
                             embedding.is_some(),
                             score.reasoning
                         );
+
+                        if let Err(e) =
+                            persona::evolve_after_turn(&db2, &assistant_reply_owned, &score)
+                        {
+                            let _ =
+                                writeln!(log2.lock().unwrap(), "[{ts}] persona evolve error: {e}");
+                        }
 
                         match memory::lifecycle::run_maintenance(&db2, &lifecycle_cfg) {
                             Ok(stats)

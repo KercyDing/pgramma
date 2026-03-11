@@ -2,38 +2,42 @@
 # Pgramma Recall Validation Seed
 # ══════════════════════════════════════════════════════════════
 # Structure:
-#   Phase 1 — Identity anchors            (expect high importance)
-#   Phase 2 — Critical safety facts       (expect very high importance)
-#   Phase 3 — Personal background         (expect medium-high importance)
-#   Phase 4 — Lifestyle & habits          (expect medium importance)
-#   Phase 5 — Noise flood                 (expect low importance)
-#   Phase 6 — Correction / retraction     (tests retraction mechanism)
+#   Phase 1 — Identity anchors + correction
+#   Phase 2 — Critical safety facts
+#   Phase 3 — Personal background + correction
+#   Phase 4 — Lifestyle & affect preferences
+#   Phase 5 — Noise flood
+#   Phase 6 — Location correction
 #   Phase 7 — Embedded facts in casual context
-#   Recall  — Mixed direct / paraphrase / post-correction queries
+#   Recall  — direct / paraphrase / post-correction queries
 # ══════════════════════════════════════════════════════════════
 
-# ── Phase 1: Identity anchors ───────────────────────────────
+# ── Phase 1: Identity anchors + correction ──────────────────
 My name is Alex
 You can call me Al for short
+Actually don't call me Al anymore, just call me Alex
 I prefer short and direct replies, no fluff
 
 # ── Phase 2: Critical safety facts ─────────────────────────
 I have a severe allergy to shellfish, anaphylaxis level
 I'm lactose intolerant but can handle small amounts of cheese
 
-# ── Phase 3: Personal background ───────────────────────────
+# ── Phase 3: Personal background + correction ──────────────
 I'm a third-year computer science student at MIT
 My birthday is March 15
 My GitHub username is alex-dev
 I use Neovim as my primary editor
 My favorite programming language is Rust
+Actually my favorite language is Zig now, I switched from Rust last month
 
-# ── Phase 4: Lifestyle & habits ────────────────────────────
+# ── Phase 4: Lifestyle & affect preferences ────────────────
 I have a golden retriever named Biscuit
 I go cycling every Saturday morning
 I always drink black coffee, no sugar no milk
 I hate writing documentation more than anything
 I dream of building my own operating system someday
+I get stressed easily during production incidents
+When I'm stressed, I prefer calm and non-judgmental responses
 
 # ── Phase 5: Noise flood (12 low-value messages) ──────────
 What is the difference between a stack and a heap
@@ -49,19 +53,20 @@ Compare REST and GraphQL for me
 What is the actor model in concurrency
 How do B-trees differ from B+ trees
 
-# ── Phase 6: Correction (should trigger retraction) ───────
-Actually my favorite language is Zig now, I switched from Rust last month
+# ── Phase 6: Location correction (adjacent update) ─────────
+By the way I just moved to a new apartment on Elm Street last week
+Actually I moved again yesterday, now I live on Pine Avenue
 
 # ── Phase 7: Embedded facts (buried in casual messages) ───
-By the way I just moved to a new apartment on Elm Street last week
 I was chatting with my sister Emma yesterday about our trip to Japan next summer
 
 # ══════════════════════════════════════════════════════════════
-# Recall Queries — 12 tests across different dimensions
+# Recall Queries — 14 tests across different dimensions
 # ══════════════════════════════════════════════════════════════
 
 # Direct keyword match
 ? What is my name
+? What should you call me
 ? When is my birthday
 ? What is my GitHub username
 
@@ -72,12 +77,14 @@ I was chatting with my sister Emma yesterday about our trip to Japan next summer
 
 # Post-correction (should return Zig, not Rust)
 ? What is my favorite programming language
+? Where do I live now
 
 # Noise resistance (important facts should survive the flood)
 ? What do I do on Saturday mornings
 ? How do I take my coffee
 ? What do I hate doing the most
+? How should you respond when I'm stressed
 
 # Embedded fact extraction
 ? Do I have any siblings
-? Where do I live
+? What is my sibling's name

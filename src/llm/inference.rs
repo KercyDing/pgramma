@@ -54,13 +54,14 @@ where
 /// Run a single streaming chat turn.
 ///
 /// Loads recent episodes as context, injects recalled memory fragments
-/// into the system prompt, streams LLM reply to stdout,
+/// and optional persona state hint into the system prompt, streams LLM reply to stdout,
 /// writes user + assistant episodes to db, returns the full reply.
 pub async fn chat_stream(
     llm: &LlmClient,
     db: &Arc<PgramDb>,
     user_input: &str,
     system_prompt: &str,
+    persona_prompt_suffix: Option<&str>,
     memories: &[MemoryFragment],
     context_window: i64,
 ) -> Result<String> {
@@ -73,15 +74,20 @@ pub async fn chat_stream(
     context.push_str(&format!("user: {user_input}\n"));
 
     // Inject memory fragments into system prompt (scores hidden from LLM)
-    let full_prompt = if memories.is_empty() {
-        system_prompt.to_owned()
-    } else {
+    let full_prompt = {
         let mut p = system_prompt.to_owned();
-        p.push_str(
-            "\n\n[Memory fragments — let these naturally color your tone, do not recite them]",
-        );
-        for m in memories {
-            p.push_str(&format!("\n- \"{}\"", m.content));
+        if let Some(suffix) = persona_prompt_suffix
+            && !suffix.trim().is_empty()
+        {
+            p.push_str(suffix);
+        }
+        if !memories.is_empty() {
+            p.push_str(
+                "\n\n[Memory fragments — let these naturally color your tone, do not recite them]",
+            );
+            for m in memories {
+                p.push_str(&format!("\n- \"{}\"", m.content));
+            }
         }
         p
     };
