@@ -186,6 +186,7 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
     let chat_text = format!("User: {input}\nAssistant: {reply}");
     let user_input_owned = input.to_owned();
     let context_for_eval: Vec<String> = recent_turns.clone();
+    let lifecycle_cfg = app.config.lifecycle.clone();
 
     let eval_turns = app.config.chat.eval_context_turns;
     recent_turns.push(chat_text.clone());
@@ -232,6 +233,28 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
                             embedding.is_some(),
                             score.reasoning
                         );
+
+                        match memory::lifecycle::run_maintenance(&db2, &lifecycle_cfg) {
+                            Ok(stats)
+                                if !stats.skipped
+                                    && (stats.decayed > 0
+                                        || stats.deleted > 0
+                                        || stats.overflow_after_gc > 0) =>
+                            {
+                                let _ = writeln!(
+                                    log2.lock().unwrap(),
+                                    "[{ts}] lifecycle: decayed={} deleted={} overflow={}",
+                                    stats.decayed,
+                                    stats.deleted,
+                                    stats.overflow_after_gc
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                let _ =
+                                    writeln!(log2.lock().unwrap(), "[{ts}] lifecycle error: {e}");
+                            }
+                        }
                     }
                     Err(e) => {
                         let _ = writeln!(log2.lock().unwrap(), "[{ts}] eval error: {e}");

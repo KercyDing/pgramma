@@ -66,3 +66,21 @@ context_window = 20
 eval_context_turns = 3
 # Default system prompt (used on first run to seed the database).
 default_system_prompt = "You are a thoughtful assistant with emotional awareness."
+
+[lifecycle]
+# Enable periodic lifecycle maintenance.
+enabled = true
+# Minimum interval between maintenance runs.
+maintenance_interval_secs = 300
+# Example: 14.0 (Ebbinghaus-style half-life in days)
+half_life_days = 14.0
+# Example: 0.6 (access_count gain via ln(1+access_count))
+access_half_life_gain = 0.6
+# Minimum importance floor after decay.
+min_importance_floor = 0.05
+# Importance at/above this value is protected from decay.
+protect_above_importance = 0.8
+# Maximum retained engram count after GC.
+gc_max_engrams = 10000
+# GC only deletes engrams below this threshold.
+gc_delete_below = 0.3

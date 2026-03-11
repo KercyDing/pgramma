@@ -247,6 +247,31 @@ impl PgramDb {
         Ok(())
     }
 
+    /// Update importance value for an existing engram.
+    pub fn update_engram_importance(&self, id: i64, importance: f32) -> Result<()> {
+        let key = id as u64;
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(ENGRAMS_TABLE)?;
+            let updated = {
+                let existing = table.get(key)?;
+                match existing {
+                    Some(guard) => {
+                        let mut engram: Engram = decode(guard.value())?;
+                        engram.importance = importance;
+                        Some(encode(&engram)?)
+                    }
+                    None => None,
+                }
+            };
+            if let Some(bytes) = updated {
+                table.insert(key, bytes.as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Get the most recently inserted engram, if any.
     pub fn get_latest_engram(&self) -> Result<Option<Engram>> {
         let txn = self.db.begin_read()?;
@@ -340,5 +365,10 @@ mod tests {
         assert!(db.delete_engram(id).unwrap());
         assert!(!db.delete_engram(999).unwrap());
         assert_eq!(db.get_engrams_above(0.0).unwrap().len(), 1);
+
+        db.update_engram_importance(id2, 0.9).unwrap();
+        let upgraded = db.get_engrams_above(0.8).unwrap();
+        assert_eq!(upgraded.len(), 1);
+        assert_eq!(upgraded[0].id, id2);
     }
 }

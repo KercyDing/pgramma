@@ -1,17 +1,18 @@
 use serde::Deserialize;
 
 /// Top-level application configuration loaded from `config.toml`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub llm: LlmConfig,
     pub embedding: EmbeddingConfig,
     pub recall: RecallConfig,
     pub chat: ChatConfig,
+    pub lifecycle: LifecycleConfig,
 }
 
 /// LLM runtime configuration with provider profiles.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct LlmConfig {
     /// Provider key currently in use.
@@ -24,7 +25,7 @@ pub struct LlmConfig {
 }
 
 /// Provider profiles for all supported LLM backends.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct LlmProvidersConfig {
     pub openai: LlmProviderProfile,
@@ -36,7 +37,7 @@ pub struct LlmProvidersConfig {
 }
 
 /// Shared profile fields for each LLM provider.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct LlmProviderProfile {
     /// Chat model identifier to use for inference and evaluation.
@@ -47,7 +48,7 @@ pub struct LlmProviderProfile {
     pub base_url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct EmbeddingConfig {
     pub model_id: String,
@@ -57,7 +58,7 @@ pub struct EmbeddingConfig {
     pub cache_dir: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RecallConfig {
     pub top_k: usize,
@@ -65,12 +66,34 @@ pub struct RecallConfig {
     pub cosine_weight: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ChatConfig {
     pub context_window: i64,
     pub eval_context_turns: usize,
     pub default_system_prompt: String,
+}
+
+/// Memory lifecycle maintenance settings.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct LifecycleConfig {
+    /// Enable periodic memory maintenance after evaluation writes.
+    pub enabled: bool,
+    /// Minimum interval between maintenance runs.
+    pub maintenance_interval_secs: i64,
+    /// Ebbinghaus-style half-life in days for ordinary memories.
+    pub half_life_days: f32,
+    /// Access-driven half-life gain factor using ln(1 + access_count).
+    pub access_half_life_gain: f32,
+    /// Hard floor for decayed importance values.
+    pub min_importance_floor: f32,
+    /// Memories at or above this importance are protected from decay.
+    pub protect_above_importance: f32,
+    /// Target maximum engram count after GC.
+    pub gc_max_engrams: usize,
+    /// GC only deletes engrams below this importance.
+    pub gc_delete_below: f32,
 }
 
 impl Default for LlmConfig {
@@ -145,6 +168,21 @@ impl Default for ChatConfig {
             eval_context_turns: 3,
             default_system_prompt: "You are a thoughtful assistant with emotional awareness."
                 .to_owned(),
+        }
+    }
+}
+
+impl Default for LifecycleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            maintenance_interval_secs: 300,
+            half_life_days: 14.0,
+            access_half_life_gain: 0.6,
+            min_importance_floor: 0.05,
+            protect_above_importance: 0.8,
+            gc_max_engrams: 10_000,
+            gc_delete_below: 0.3,
         }
     }
 }
