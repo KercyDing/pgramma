@@ -209,6 +209,26 @@ impl PgramDb {
         Ok(removed)
     }
 
+    /// Delete the newest engram whose content exactly matches `content`.
+    ///
+    /// Returns deleted id when found.
+    pub fn delete_latest_engram_by_content(&self, content: &str) -> Result<Option<i64>> {
+        let target = self
+            .get_all_engrams()?
+            .into_iter()
+            .filter(|engram| engram.content == content)
+            .max_by_key(|engram| engram.id)
+            .map(|engram| engram.id);
+
+        match target {
+            Some(id) => {
+                let deleted = self.delete_engram(id)?;
+                if deleted { Ok(Some(id)) } else { Ok(None) }
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Get all engrams (for batch embedding backfill).
     pub fn get_all_engrams(&self) -> Result<Vec<Engram>> {
         let txn = self.db.begin_read()?;
@@ -370,5 +390,20 @@ mod tests {
         let upgraded = db.get_engrams_above(0.8).unwrap();
         assert_eq!(upgraded.len(), 1);
         assert_eq!(upgraded[0].id, id2);
+
+        let id3 = db
+            .insert_engram("duplicate", Emotion::Neutral, 0.2, None)
+            .unwrap();
+        let id4 = db
+            .insert_engram("duplicate", Emotion::Neutral, 0.3, None)
+            .unwrap();
+        let removed = db
+            .delete_latest_engram_by_content("duplicate")
+            .unwrap()
+            .unwrap();
+        assert_eq!(removed, id4);
+        let all = db.get_all_engrams().unwrap();
+        assert!(all.iter().any(|e| e.id == id3));
+        assert!(!all.iter().any(|e| e.id == id4));
     }
 }

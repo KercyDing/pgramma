@@ -39,6 +39,13 @@ fn open_log() -> std::io::Result<std::fs::File> {
         .open("pgramma.log")
 }
 
+fn extract_user_engram_text(turn: &str) -> Option<String> {
+    let first = turn.lines().next()?.trim();
+    first
+        .strip_prefix("User:")
+        .map(|s| format!("User: {}", s.trim()))
+}
+
 /// Run the Pgramma interactive application.
 ///
 /// Returns a typed startup/runtime error string if initialization fails.
@@ -194,6 +201,9 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
     let db2 = Arc::clone(&app.db);
     let log2 = Arc::clone(&app.log);
     let embedder2 = Arc::clone(&app.embedder);
+    let previous_user_engram_text = recent_turns
+        .last()
+        .and_then(|t| extract_user_engram_text(t));
     let chat_text = format!("User: {input}\nAssistant: {reply}");
     let engram_text = format!("User: {input}");
     let assistant_reply_owned = reply;
@@ -211,16 +221,52 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
         let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         match llm::evaluate(&llm2, &chat_text, &context_for_eval).await {
             Ok(score) => {
-                if score.retraction
-                    && let Some(prev_engram) = db2.get_latest_engram().ok().flatten()
-                {
-                    let _ = db2.delete_engram(prev_engram.id);
-                    let _ = writeln!(
-                        log2.lock().unwrap(),
-                        "[{ts}] retraction: deleted engram #{} — {}",
-                        prev_engram.id,
-                        score.reasoning
-                    );
+                if score.retraction {
+                    if let Some(target_content) = previous_user_engram_text.as_deref() {
+                        let mut deleted = None;
+                        for attempt in 0..3 {
+                            match db2.delete_latest_engram_by_content(target_content) {
+                                Ok(id) if id.is_some() => {
+                                    deleted = id;
+                                    break;
+                                }
+                                Ok(_) if attempt < 2 => {
+                                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                                }
+                                Ok(_) => break,
+                                Err(e) => {
+                                    let _ = writeln!(
+                                        log2.lock().unwrap(),
+                                        "[{ts}] retraction delete error: {e}"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        match deleted {
+                            Some(id) => {
+                                let _ = writeln!(
+                                    log2.lock().unwrap(),
+                                    "[{ts}] retraction: deleted engram #{id} ({target_content}) — {}",
+                                    score.reasoning
+                                );
+                            }
+                            None => {
+                                let _ = writeln!(
+                                    log2.lock().unwrap(),
+                                    "[{ts}] retraction: no matching previous engram for `{target_content}` — {}",
+                                    score.reasoning
+                                );
+                            }
+                        }
+                    } else {
+                        let _ = writeln!(
+                            log2.lock().unwrap(),
+                            "[{ts}] retraction: skipped (no previous turn context) — {}",
+                            score.reasoning
+                        );
+                    }
                 }
 
                 let emotion = Emotion::from_str_checked(
