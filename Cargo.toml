@@ -15,6 +15,12 @@ schemars = "1"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 dotenvy = "0.15"
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
+hf-hub = "0.5"
+tokenizers = "0.22"
+toml = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

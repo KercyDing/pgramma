@@ -1,12 +1,13 @@
 use rig::client::ProviderClient;
 use rig::providers::openai;
 
-/// Thin wrapper over rig's OpenAI client with env-based config.
+/// Thin wrapper over rig's OpenAI client.
 ///
-/// Reads environment variables:
+/// API credentials come from environment variables:
 /// - `OPENAI_API_KEY` (required) — API key
 /// - `OPENAI_BASE_URL` (optional) — custom endpoint for OpenAI-compatible APIs
-/// - `LLM_MODEL` (optional, defaults to "gpt-4o") — model name
+///
+/// The model name is provided by the caller (from config.toml).
 #[derive(Clone)]
 pub struct LlmClient {
     pub(crate) client: openai::Client,
@@ -14,10 +15,11 @@ pub struct LlmClient {
 }
 
 impl LlmClient {
-    pub fn from_env() -> Result<Self, String> {
-        // rig's from_env reads OPENAI_API_KEY and OPENAI_BASE_URL
+    pub fn from_env(model: &str) -> Result<Self, String> {
         let client = openai::Client::from_env();
-        let model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o".to_owned());
-        Ok(Self { client, model })
+        Ok(Self {
+            client,
+            model: model.to_owned(),
+        })
     }
 }

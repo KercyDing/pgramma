@@ -24,6 +24,9 @@ pub enum PgrammaError {
 
     #[error("{0}")]
     InvalidData(String),
+
+    #[error("embedding: {0}")]
+    Embedding(String),
 }
 
 pub type Result<T> = std::result::Result<T, PgrammaError>;

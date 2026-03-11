@@ -209,6 +209,44 @@ impl PgramDb {
         Ok(removed)
     }
 
+    /// Get all engrams (for batch embedding backfill).
+    pub fn get_all_engrams(&self) -> Result<Vec<Engram>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(ENGRAMS_TABLE)?;
+        let mut results = Vec::new();
+        for item in table.iter()? {
+            let item = item?;
+            let engram: Engram = decode(item.1.value())?;
+            results.push(engram);
+        }
+        Ok(results)
+    }
+
+    /// Update embedding vector for an existing engram.
+    pub fn update_engram_embedding(&self, id: i64, embedding: &[f32]) -> Result<()> {
+        let key = id as u64;
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(ENGRAMS_TABLE)?;
+            let updated = {
+                let existing = table.get(key)?;
+                match existing {
+                    Some(guard) => {
+                        let mut engram: Engram = decode(guard.value())?;
+                        engram.embedding = Some(embedding.to_vec());
+                        Some(encode(&engram)?)
+                    }
+                    None => None,
+                }
+            };
+            if let Some(bytes) = updated {
+                table.insert(key, bytes.as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Get the most recently inserted engram, if any.
     pub fn get_latest_engram(&self) -> Result<Option<Engram>> {
         let txn = self.db.begin_read()?;

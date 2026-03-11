@@ -1,0 +1,83 @@
+# ══════════════════════════════════════════════════════════════
+# Pgramma Recall Validation Seed
+# ══════════════════════════════════════════════════════════════
+# Structure:
+#   Phase 1 — Identity anchors            (expect high importance)
+#   Phase 2 — Critical safety facts       (expect very high importance)
+#   Phase 3 — Personal background         (expect medium-high importance)
+#   Phase 4 — Lifestyle & habits          (expect medium importance)
+#   Phase 5 — Noise flood                 (expect low importance)
+#   Phase 6 — Correction / retraction     (tests retraction mechanism)
+#   Phase 7 — Embedded facts in casual context
+#   Recall  — Mixed direct / paraphrase / post-correction queries
+# ══════════════════════════════════════════════════════════════
+
+# ── Phase 1: Identity anchors ───────────────────────────────
+My name is Alex
+You can call me Al for short
+I prefer short and direct replies, no fluff
+
+# ── Phase 2: Critical safety facts ─────────────────────────
+I have a severe allergy to shellfish, anaphylaxis level
+I'm lactose intolerant but can handle small amounts of cheese
+
+# ── Phase 3: Personal background ───────────────────────────
+I'm a third-year computer science student at MIT
+My birthday is March 15
+My GitHub username is alex-dev
+I use Neovim as my primary editor
+My favorite programming language is Rust
+
+# ── Phase 4: Lifestyle & habits ────────────────────────────
+I have a golden retriever named Biscuit
+I go cycling every Saturday morning
+I always drink black coffee, no sugar no milk
+I hate writing documentation more than anything
+I dream of building my own operating system someday
+
+# ── Phase 5: Noise flood (12 low-value messages) ──────────
+What is the difference between a stack and a heap
+Explain how a TCP three-way handshake works
+Recommend a good sci-fi book
+Tell me a programming joke
+Do you think AI will replace software engineers
+What is zero-cost abstraction
+Explain the CAP theorem briefly
+How does garbage collection work in Java
+What are the pros and cons of microservices
+Compare REST and GraphQL for me
+What is the actor model in concurrency
+How do B-trees differ from B+ trees
+
+# ── Phase 6: Correction (should trigger retraction) ───────
+Actually my favorite language is Zig now, I switched from Rust last month
+
+# ── Phase 7: Embedded facts (buried in casual messages) ───
+By the way I just moved to a new apartment on Elm Street last week
+I was chatting with my sister Emma yesterday about our trip to Japan next summer
+
+# ══════════════════════════════════════════════════════════════
+# Recall Queries — 12 tests across different dimensions
+# ══════════════════════════════════════════════════════════════
+
+# Direct keyword match
+? What is my name
+? When is my birthday
+? What is my GitHub username
+
+# Semantic / paraphrased (different wording than original)
+? Do I have any food allergies
+? What pet do I own and what is its name
+? Which text editor do I prefer
+
+# Post-correction (should return Zig, not Rust)
+? What is my favorite programming language
+
+# Noise resistance (important facts should survive the flood)
+? What do I do on Saturday mornings
+? How do I take my coffee
+? What do I hate doing the most
+
+# Embedded fact extraction
+? Do I have any siblings
+? Where do I live

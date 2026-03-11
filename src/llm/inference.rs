@@ -9,31 +9,46 @@ use rig::streaming::{StreamedAssistantContent, StreamingPrompt};
 use super::client::LlmClient;
 use crate::db::PgramDb;
 use crate::error::{PgrammaError, Result};
+use crate::memory::MemoryFragment;
 use crate::models::Role;
-
-/// Number of recent episodes to include as context.
-const CONTEXT_WINDOW: i64 = 20;
 
 /// Run a single streaming chat turn.
 ///
-/// Loads recent episodes as context, streams LLM reply to stdout,
+/// Loads recent episodes as context, injects recalled memory fragments
+/// into the system prompt, streams LLM reply to stdout,
 /// writes user + assistant episodes to db, returns the full reply.
 pub async fn chat_stream(
     llm: &LlmClient,
     db: &Arc<PgramDb>,
     user_input: &str,
     system_prompt: &str,
+    memories: &[MemoryFragment],
+    context_window: i64,
 ) -> Result<String> {
     // Build context from recent episodes (newest-first → reverse for chronological)
-    let episodes = db.get_episodes(CONTEXT_WINDOW, 0)?;
+    let episodes = db.get_episodes(context_window, 0)?;
     let mut context = String::new();
     for ep in episodes.iter().rev() {
         context.push_str(&format!("{}: {}\n", ep.role, ep.content));
     }
     context.push_str(&format!("user: {user_input}\n"));
 
+    // Inject memory fragments into system prompt (scores hidden from LLM)
+    let full_prompt = if memories.is_empty() {
+        system_prompt.to_owned()
+    } else {
+        let mut p = system_prompt.to_owned();
+        p.push_str(
+            "\n\n[Memory fragments — let these naturally color your tone, do not recite them]",
+        );
+        for m in memories {
+            p.push_str(&format!("\n- \"{}\"", m.content));
+        }
+        p
+    };
+
     // Build agent and stream
-    let agent = llm.client.agent(&llm.model).preamble(system_prompt).build();
+    let agent = llm.client.agent(&llm.model).preamble(&full_prompt).build();
 
     let mut stream = agent.stream_prompt(&context).multi_turn(1).await;
 
