@@ -1,14 +1,21 @@
-/target
+# Rust build output
+/target/
+
+# Python cache / venv
 .venv/
 __pycache__/
 *.pyc
-notebooks/.venv/
-notebooks/dummy_data/*.db
-*.pgram
+
+# Local runtime artifacts
 *.log
+*.pgram
+
+# Local-only configs / notes
+config.toml
 INSTRUCT.md
-.env
 seed_zh.txt
-docs/specs/
-docs/plans/
 .claude
+
+# Local planning docs
+docs/plans/
+docs/specs/

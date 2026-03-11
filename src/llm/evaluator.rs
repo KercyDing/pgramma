@@ -1,7 +1,8 @@
+use rig::client::CompletionClient;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::client::LlmClient;
+use super::client::{LlmClient, ProviderClient};
 use crate::error::{PgrammaError, Result};
 
 // ── scoring criteria (injected via system prompt) ───────────────
@@ -121,14 +122,45 @@ pub async fn evaluate(
         format!("[RECENT CONTEXT]\n{ctx}\n\n[CURRENT TURN]\n{chat_text}")
     };
 
-    let extractor = llm
-        .client
-        .extractor::<EngramScore>(&llm.model)
-        .preamble(&build_system_prompt())
+    let system_prompt = build_system_prompt();
+    match &llm.client {
+        ProviderClient::OpenAi(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+        ProviderClient::Google(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+        ProviderClient::Grok(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+        ProviderClient::Anthropic(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+        ProviderClient::OpenRouter(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+        ProviderClient::Custom(client) => {
+            extract_score(client, &llm.model, &system_prompt, &input).await
+        }
+    }
+}
+
+async fn extract_score<C>(
+    client: &C,
+    model: &str,
+    system_prompt: &str,
+    input: &str,
+) -> Result<EngramScore>
+where
+    C: CompletionClient,
+{
+    let extractor = client
+        .extractor::<EngramScore>(model)
+        .preamble(system_prompt)
         .build();
 
     extractor
-        .extract(&input)
+        .extract(input)
         .await
         .map_err(|e| PgrammaError::InvalidData(format!("evaluation failed: {e}")))
 }

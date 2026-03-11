@@ -2,194 +2,66 @@
 
 [中文文档](README_ZH.md)
 
-A local-first digital persona engine — one file, one identity, irreversible memory.
+Pgramma is a local-first digital persona engine: one `.pgram` file stores identity, memory, and conversation history.
 
-## Philosophy
+## Core Idea
 
-A digital persona is not a chatbot with a database. It is a **living state** — an accumulation of every interaction, emotion, and decision that shapes its identity over time.
-
-Pgramma is built on three principles:
-
-- **One file, one persona.** A single `.pgram` (Persona Engram) file encapsulates everything — memory, emotion baseline, personality configuration. Copy the file, and the persona travels with it.
-- **Memory is irreversible.** Just like biological memory, engrams are written once and never modified. They may decay, be superseded by newer memories, or fade in relevance — but the original trace is permanent. The episodic timeline is append-only.
-- **Cognition is evaluated, not hardcoded.** Every conversation turn passes through a cognitive evaluator that scores importance (0.0–1.0) and classifies emotion. The persona decides what matters, not a rule engine.
-
-## How It Works
-
-```
-User input
-    │
-    ├─→ Recall       importance filter → cosine rank → top-k
-    │       │
-    │       ▼
-    ├─→ Inference    system prompt + recalled engrams + recent episodes → stream
-    │       │
-    │       ▼
-    └─→ Evaluation   importance scoring + emotion tagging + embedding (background)
-                │
-                ▼
-           Engram written to .pgram
-```
-
-Every interaction follows this cycle: **recall → respond → evaluate → remember**. The evaluation runs asynchronously — the persona reflects on each exchange after the fact, just as a person might.
-
-## Features
-
-- **Semantic Recall** — retrieves relevant past memories via embedding similarity, not recency
-- **Cognitive Evaluation** — LLM-scored importance with a calibrated rubric (identity anchors > emotional depth > preferences > small talk)
-- **Local Embeddings** — sentence vectors via [candle](https://github.com/huggingface/candle) (pure Rust, no Python/ONNX)
-- **Emotion Spectrum** — Plutchik-based 10-category classification per engram
-- **Retraction Detection** — contradictions are flagged, but the original memory persists
-- **Streaming Inference** — real-time token output via OpenAI-compatible APIs
-- **Single-File Persona** — [redb](https://github.com/cberner/redb) embedded database, portable `.pgram` (Persona Engram) container
-- **Lifecycle Evolution** — memory decay, GC, and personality drift (planned)
+- One file, one persona.
+- Memory is append-only and not rewritten.
+- Each turn follows: recall -> respond -> evaluate -> store.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Rust 1.80+ (edition 2024)
-- An OpenAI-compatible API endpoint
+- At least one usable LLM provider endpoint
 
 ### Setup
 
 ```bash
 git clone https://github.com/KercyDing/pgramma.git
 cd pgramma
-
-cp .env.example .env
-# Edit .env: set OPENAI_API_KEY (and optionally OPENAI_BASE_URL, HF_HOME)
-
+cp config.example.toml config.toml
+# Edit config.toml: set active_provider, model, api_key
 cargo run
 ```
 
-On first launch, the embedding model (~470MB) is downloaded from HuggingFace Hub.
-
-### Usage
-
-```
-=== Pgramma ===
-Type /help for commands
-
-> My name is Alex
-→ Nice to meet you, Alex! ...
-
-  ... 50 messages later ...
-
-> Do you remember my name?
-→ Of course — you're Alex.
-
-> /stats
-  engrams: 42  episodes: 104
-
-> /quit
-Bye!
-```
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show available commands |
-| `/test <path>` | Batch seed from file and verify recall |
+| `/help` | Show commands |
+| `/test <path>` | Seed from file and verify recall |
 | `/stats` | Show engram and episode counts |
 | `/quit` | Exit |
 
 ## Configuration
 
-### `config.toml` — Persona Behavior
+Use `config.example.toml` as the template and keep local edits in `config.toml`.
 
-```toml
-[llm]
-model = "gpt-4o"
+Key points:
 
-[embedding]
-model_id = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+- `llm.active_provider` selects provider.
+- `llm.providers.<provider>.model` and `api_key` are required for the active provider.
+- `embedding.model_id` controls local embedding model.
+- `config.toml` is ignored by git.
 
-[recall]
-top_k = 8
-min_importance = 0.3
-cosine_weight = 0.7
-
-[chat]
-context_window = 20
-eval_context_turns = 3
-default_system_prompt = "You are a thoughtful assistant with emotional awareness."
-```
-
-All fields have defaults — the engine works without a config file.
-
-### `.env` — Secrets
-
-```bash
-OPENAI_API_KEY=sk-...          # Required
-OPENAI_BASE_URL=https://...    # Optional
-HF_HOME=/path/to/cache         # Optional
-```
+If required fields are missing, startup prints a fatal message and exits gracefully.
 
 ## Architecture
 
-```
-src/
-├── main.rs              # REPL + App state
-├── config.rs            # TOML config with defaults
-├── models.rs            # Engram, Emotion, EpisodicEntry
-├── error.rs             # Unified error type
-├── db/
-│   ├── mod.rs           # Engram / episode / config CRUD
-│   └── connection.rs    # redb table definitions
-├── llm/
-│   ├── client.rs        # OpenAI client wrapper (rig-core)
-│   ├── inference.rs     # Streaming chat + memory injection
-│   └── evaluator.rs     # Cognitive scorer (importance + emotion)
-└── memory/
-    ├── mod.rs           # Recall pipeline (filter → rank → top-k)
-    └── embedder.rs      # Candle BERT encoder (CPU)
-
-notebooks/               # Python lab — prompt tuning & decay modeling
-```
-
-### The `.pgram` Container
-
-The `.pgram` file is a redb database containing three logical layers:
-
-| Layer | Table | Role |
-|-------|-------|------|
-| **Subconscious** | `persona_config` | System prompt, emotion baseline, counters |
-| **Timeline** | `episodic_memory` | Append-only interaction log (immutable) |
-| **Engrams** | `engrams` | Weighted memory with embeddings, emotion, importance |
-
-One file. Fully portable. No external state.
-
-## Tech Stack
-
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Core | Rust | Performance, safety, single binary |
-| LLM | [rig-core](https://github.com/0xPlaygrounds/rig) | Structured extraction, streaming |
-| Embeddings | [candle](https://github.com/huggingface/candle) | Pure Rust inference, no FFI |
-| Model | paraphrase-multilingual-MiniLM-L12-v2 | Multilingual, 384-dim |
-| Storage | [redb](https://github.com/cberner/redb) | Embedded, ACID, single-file |
+- `src/main.rs`: REPL and app bootstrap
+- `src/config.rs`: TOML config parsing
+- `src/db/`: redb-based storage
+- `src/llm/`: multi-provider inference and evaluator
+- `src/memory/`: embedding and recall pipeline
 
 ## Testing
 
 ```bash
-cargo test                    # Unit tests
-cargo run -- <<< '/test seed.txt'   # Recall validation
+cargo test
 ```
-
-Seed file format:
-```
-# Comment (skipped)
-I have a dog named Biscuit    # Sent as chat message
-? What pet do I have          # Recall query (verified after seeding)
-```
-
-## Roadmap
-
-- [ ] Memory decay — time-weighted importance degradation
-- [ ] GC worker — low-weight pruning + high-weight summarization
-- [ ] Personality drift — emotion baseline evolves with interaction history
-- [ ] Local inference — GGUF model support via candle (fully offline)
-- [ ] GUI shell — frontend for the `.pgram` container
 
 ## License
 

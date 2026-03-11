@@ -1,0 +1,68 @@
+# Pgramma Configuration Example
+#
+# 1) Copy this file to config.toml
+# 2) Fill API keys here directly
+# 3) Edit provider/model values for your environment
+
+[llm]
+# Supported values: openai, google (or gemini), grok (or xai/gork), anthropic, openrouter, custom
+active_provider = "openai"
+
+[llm.providers.openai]
+# Example: gpt-5.2
+model = ""
+api_key = "your-openai-key"
+base_url = "https://api.openai.com/v1"
+
+[llm.providers.google]
+# Example: gemini-3.1-flash-lite-preview
+model = ""
+api_key = "your-google-key"
+base_url = "https://generativelanguage.googleapis.com"
+
+[llm.providers.grok]
+# Example: grok-4-1-fast-reasoning
+model = ""
+api_key = "your-grok-key"
+base_url = "https://api.x.ai"
+
+[llm.providers.anthropic]
+# Example: claude-haiku-4-5
+model = ""
+api_key = "your-anthropic-key"
+base_url = "https://api.anthropic.com"
+
+[llm.providers.openrouter]
+# Example: minimax/minimax-m2.5
+model = ""
+api_key = "your-openrouter-key"
+base_url = "https://openrouter.ai/api/v1"
+
+[llm.providers.custom]
+# OpenAI-compatible endpoint (required when active_provider = "custom")
+model = ""
+api_key = "your-custom-key"
+base_url = "https://your-openai-compatible-endpoint/v1"
+
+[embedding]
+# HuggingFace model ID for sentence embeddings.
+# Changing this invalidates existing embeddings in the database.
+model_id = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# Optional HuggingFace cache root directory.
+# cache_dir = "./.hf-cache"
+
+[recall]
+# Maximum number of memory fragments to retrieve per query.
+top_k = 8
+# Minimum importance score for an engram to be considered.
+min_importance = 0.3
+# Weight for cosine similarity in scoring (importance weight = 1 - cosine_weight).
+cosine_weight = 0.7
+
+[chat]
+# Number of recent episodes to include as context.
+context_window = 20
+# Number of recent turns to keep for evaluator context.
+eval_context_turns = 3
+# Default system prompt (used on first run to seed the database).
+default_system_prompt = "You are a thoughtful assistant with emotional awareness."

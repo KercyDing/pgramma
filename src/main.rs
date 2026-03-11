@@ -27,35 +27,50 @@ fn print_help() {
 }
 
 /// Open (or create) the log file for background eval output.
-fn open_log() -> std::fs::File {
+fn open_log() -> std::io::Result<std::fs::File> {
     OpenOptions::new()
         .create(true)
         .append(true)
         .open("pgramma.log")
-        .expect("failed to open pgramma.log")
 }
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
+    if let Err(e) = run().await {
+        eprintln!("\x1b[31m[fail] {e}\x1b[0m");
+        eprintln!("\x1b[34m[hint] Fix config.toml and run again.\x1b[0m");
+        return;
+    }
+}
+
+async fn run() -> Result<(), String> {
     let config = AppConfig::load("config.toml");
 
-    let db = Arc::new(PgramDb::open("pgramma.pgram").expect("failed to open database"));
+    let db = Arc::new(
+        PgramDb::open("pgramma.pgram").map_err(|e| format!("failed to open database: {e}"))?,
+    );
 
-    if db.get_config("system_prompt").is_err() {
+    let system_prompt = if let Ok(prompt) = db.get_config("system_prompt") {
+        prompt
+    } else {
         db.set_config("system_prompt", &config.chat.default_system_prompt)
-            .expect("failed to set system prompt");
-    }
-    let system_prompt = db.get_config("system_prompt").unwrap();
+            .map_err(|e| format!("failed to set system prompt: {e}"))?;
+        config.chat.default_system_prompt.clone()
+    };
 
-    let llm = LlmClient::from_env(&config.llm.model).expect("failed to init LLM client");
+    let llm = LlmClient::from_config(&config.llm)
+        .map_err(|e| format!("failed to init LLM client: {e}"))?;
 
     eprintln!(
         "[init] Loading embedding model: {}...",
         config.embedding.model_id
     );
     let embedder = Arc::new(
-        Embedder::load(&config.embedding.model_id).expect("failed to load embedding model"),
+        Embedder::load(
+            &config.embedding.model_id,
+            config.embedding.cache_dir.as_deref(),
+        )
+        .map_err(|e| format!("failed to load embedding model: {e}"))?,
     );
     eprintln!("[init] Embedding model ready.");
 
@@ -63,7 +78,9 @@ async fn main() {
         llm,
         db,
         embedder,
-        log: Arc::new(std::sync::Mutex::new(open_log())),
+        log: Arc::new(std::sync::Mutex::new(
+            open_log().map_err(|e| format!("failed to open pgramma.log: {e}"))?,
+        )),
         system_prompt,
         config,
     };
@@ -124,6 +141,7 @@ async fn main() {
     }
 
     println!("Bye!");
+    Ok(())
 }
 
 /// Execute a single chat turn: recall → stream → background eval.

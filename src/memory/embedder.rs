@@ -2,6 +2,7 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config};
 use hf_hub::api::sync::ApiBuilder;
+use std::path::PathBuf;
 use tokenizers::Tokenizer;
 
 use crate::error::{PgrammaError, Result};
@@ -23,9 +24,12 @@ fn emb(e: impl std::fmt::Display) -> PgrammaError {
 
 impl Embedder {
     /// Download (or use cached) the given sentence-transformer and build on CPU.
-    pub fn load(model_id: &str) -> Result<Self> {
+    pub fn load(model_id: &str, cache_dir: Option<&str>) -> Result<Self> {
         let device = Device::Cpu;
-        let cache = hf_hub::Cache::from_env();
+        let cache = match cache_dir {
+            Some(path) if !path.trim().is_empty() => hf_hub::Cache::new(PathBuf::from(path)),
+            _ => hf_hub::Cache::from_env(),
+        };
         let api = ApiBuilder::from_cache(cache).build().map_err(emb)?;
         let repo = api.model(model_id.to_string());
 
