@@ -52,7 +52,9 @@ If required fields are missing, startup prints a fatal message and exits gracefu
 ## Architecture
 
 - `src/main.rs`: REPL and app bootstrap
-- `src/config.rs`: TOML config parsing
+- `src/app/`: bootstrap, REPL loop, and command orchestration
+- `src/config/`: TOML config parsing
+- `src/domain/`: domain models and error types
 - `src/db/`: redb-based storage
 - `src/llm/`: multi-provider inference and evaluator
 - `src/memory/`: embedding and recall pipeline

@@ -1,7 +1,9 @@
+pub mod app;
 pub mod config;
 pub mod db;
-pub mod error;
+pub mod domain;
 pub mod llm;
-pub mod models;
-
 pub mod memory;
+
+pub use domain::error;
+pub use domain::models;

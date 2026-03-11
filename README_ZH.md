@@ -52,7 +52,9 @@ cargo run
 ## 架构概览
 
 - `src/main.rs`：REPL 与启动流程
-- `src/config.rs`：TOML 配置解析
+- `src/app/`：启动编排、REPL 循环与命令调度
+- `src/config/`：TOML 配置解析
+- `src/domain/`：领域模型与错误类型
 - `src/db/`：基于 redb 的存储
 - `src/llm/`：多 Provider 推理与评估
 - `src/memory/`：向量与召回流程

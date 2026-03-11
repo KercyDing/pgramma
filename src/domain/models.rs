@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{PgrammaError, Result};
+use super::error::{PgrammaError, Result};
 
 /// Plutchik-based emotion categories, matching the original schema CHECK constraint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
