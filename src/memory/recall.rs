@@ -7,6 +7,8 @@ use super::embedder::Embedder;
 /// A recalled memory fragment ready for chat-context injection.
 pub struct MemoryFragment {
     pub content: String,
+    /// Final ranking score after combining cosine/importance/lexical bonuses.
+    pub score: f32,
     pub importance: f32,
     /// Cosine similarity to the query (0.0 when no embedding available).
     pub relevance: f32,
@@ -52,10 +54,11 @@ pub fn recall(
     let results = scored
         .into_iter()
         .take(top_k)
-        .map(|(_score, cosine, eg)| {
+        .map(|(score, cosine, eg)| {
             let _ = db.touch_engram(eg.id);
             MemoryFragment {
                 content: eg.content.clone(),
+                score,
                 importance: eg.importance,
                 relevance: cosine,
             }

@@ -6,7 +6,9 @@ use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use crate::config::AppConfig;
+use tokio::sync::{mpsc, oneshot};
+
+use crate::config::{AppConfig, LifecycleConfig};
 use crate::db::PgramDb;
 use crate::llm::{self, LlmClient};
 use crate::memory::{self, embedder::Embedder};
@@ -21,6 +23,21 @@ struct App {
     log: Arc<std::sync::Mutex<std::fs::File>>,
     system_prompt: String,
     config: AppConfig,
+}
+
+struct EvalJob {
+    llm: LlmClient,
+    db: Arc<PgramDb>,
+    log: Arc<std::sync::Mutex<std::fs::File>>,
+    embedder: Arc<Embedder>,
+    chat_text: String,
+    engram_text: String,
+    assistant_reply: String,
+    user_input: String,
+    context_for_eval: Vec<String>,
+    previous_user_engram_text: Option<String>,
+    lifecycle_cfg: LifecycleConfig,
+    done_tx: oneshot::Sender<()>,
 }
 
 fn print_help() {
@@ -44,6 +61,166 @@ fn extract_user_engram_text(turn: &str) -> Option<String> {
     first
         .strip_prefix("User:")
         .map(|s| format!("User: {}", s.trim()))
+}
+
+fn test_min_importance(query: &str, base: f32) -> f32 {
+    let q = query.to_ascii_lowercase();
+    let personal = q.contains(" my ")
+        || q.starts_with("my ")
+        || q.contains(" do i ")
+        || q.starts_with("do i ")
+        || q.contains(" should you ")
+        || q.contains("where do i")
+        || q.contains("what is my")
+        || q.contains("what do i");
+    if personal { base.max(0.4) } else { base }
+}
+
+async fn wait_eval_tasks(pending_eval_tasks: &mut Vec<oneshot::Receiver<()>>) -> usize {
+    let mut completed = 0usize;
+    for rx in pending_eval_tasks.drain(..) {
+        match rx.await {
+            Ok(()) => completed += 1,
+            Err(e) => {
+                eprintln!("[warn] eval task join error: {e}");
+                completed += 1;
+            }
+        }
+    }
+    completed
+}
+
+async fn process_eval_job(job: EvalJob) {
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let EvalJob {
+        llm,
+        db,
+        log,
+        embedder,
+        chat_text,
+        engram_text,
+        assistant_reply,
+        user_input,
+        context_for_eval,
+        previous_user_engram_text,
+        lifecycle_cfg,
+        done_tx,
+    } = job;
+
+    match llm::evaluate(&llm, &chat_text, &context_for_eval).await {
+        Ok(score) => {
+            if score.retraction {
+                if let Some(target_content) = previous_user_engram_text.as_deref() {
+                    let mut deleted = None;
+                    for attempt in 0..3 {
+                        match db.delete_latest_engram_by_content(target_content) {
+                            Ok(id) if id.is_some() => {
+                                deleted = id;
+                                break;
+                            }
+                            Ok(_) if attempt < 2 => {
+                                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                            }
+                            Ok(_) => break,
+                            Err(e) => {
+                                let _ = writeln!(
+                                    log.lock().unwrap(),
+                                    "[{ts}] retraction delete error: {e}"
+                                );
+                                break;
+                            }
+                        }
+                    }
+
+                    match deleted {
+                        Some(id) => {
+                            let _ = writeln!(
+                                log.lock().unwrap(),
+                                "[{ts}] retraction: deleted engram #{id} ({target_content}) — {}",
+                                score.reasoning
+                            );
+                        }
+                        None => {
+                            let _ = writeln!(
+                                log.lock().unwrap(),
+                                "[{ts}] retraction: no matching previous engram for `{target_content}` — {}",
+                                score.reasoning
+                            );
+                        }
+                    }
+                } else {
+                    let _ = writeln!(
+                        log.lock().unwrap(),
+                        "[{ts}] retraction: skipped (no previous turn context) — {}",
+                        score.reasoning
+                    );
+                }
+            }
+
+            let emotion = Emotion::from_str_checked(
+                &score
+                    .emotions
+                    .first()
+                    .map(|e| e.emotion.clone())
+                    .unwrap_or_else(|| "neutral".to_owned()),
+            )
+            .unwrap_or(Emotion::Neutral);
+
+            let embedding = embedder.embed(&user_input).ok();
+
+            match db.insert_engram(
+                &engram_text,
+                emotion,
+                score.importance,
+                embedding.as_deref(),
+            ) {
+                Ok(id) => {
+                    let _ = writeln!(
+                        log.lock().unwrap(),
+                        "[{ts}] id={id} importance={:.2} emotion={} retraction={} emb={} — {}",
+                        score.importance,
+                        emotion,
+                        score.retraction,
+                        embedding.is_some(),
+                        score.reasoning
+                    );
+
+                    if let Err(e) = persona::evolve_after_turn(&db, &assistant_reply, &score) {
+                        let _ = writeln!(log.lock().unwrap(), "[{ts}] persona evolve error: {e}");
+                    }
+
+                    match memory::lifecycle::run_maintenance(&db, &lifecycle_cfg) {
+                        Ok(stats)
+                            if !stats.skipped
+                                && (stats.decayed > 0
+                                    || stats.deleted > 0
+                                    || stats.overflow_after_gc > 0) =>
+                        {
+                            let _ = writeln!(
+                                log.lock().unwrap(),
+                                "[{ts}] lifecycle: decayed={} deleted={} overflow={}",
+                                stats.decayed,
+                                stats.deleted,
+                                stats.overflow_after_gc
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            let _ = writeln!(log.lock().unwrap(), "[{ts}] lifecycle error: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = writeln!(log.lock().unwrap(), "[{ts}] eval error: {e}");
+                }
+            }
+        }
+        Err(e) => {
+            let _ = writeln!(log.lock().unwrap(), "[{ts}] eval error: {e}");
+        }
+    }
+
+    let _ = done_tx.send(());
 }
 
 /// Run the Pgramma interactive application.
@@ -91,12 +268,20 @@ pub async fn run() -> Result<(), String> {
         config,
     };
 
+    let (eval_tx, mut eval_rx) = mpsc::unbounded_channel::<EvalJob>();
+    let eval_worker = tokio::spawn(async move {
+        while let Some(job) = eval_rx.recv().await {
+            process_eval_job(job).await;
+        }
+    });
+
     println!("=== Pgramma ===");
     println!("[system] {}", app.system_prompt);
     println!("Type /help for commands\n");
 
     let stdin = io::stdin();
     let mut recent_turns: Vec<String> = Vec::new();
+    let mut pending_eval_tasks: Vec<oneshot::Receiver<()>> = Vec::new();
 
     loop {
         print!("> ");
@@ -138,20 +323,37 @@ pub async fn run() -> Result<(), String> {
                 println!();
                 continue;
             }
-            run_test(&app, path, &mut recent_turns).await;
+            run_test(
+                &app,
+                &eval_tx,
+                path,
+                &mut recent_turns,
+                &mut pending_eval_tasks,
+            )
+            .await;
             continue;
         }
 
         // ── normal chat turn ────────────────────────────────────
-        chat_turn(&app, &mut recent_turns, input).await;
+        if let Some(done_rx) = chat_turn(&app, &eval_tx, &mut recent_turns, input).await {
+            pending_eval_tasks.push(done_rx);
+        }
     }
 
+    let _ = wait_eval_tasks(&mut pending_eval_tasks).await;
+    drop(eval_tx);
+    let _ = eval_worker.await;
     println!("Bye!");
     Ok(())
 }
 
-/// Execute a single chat turn: recall → stream → background eval.
-async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
+/// Execute a single chat turn: recall → stream → queue background eval.
+async fn chat_turn(
+    app: &App,
+    eval_tx: &mpsc::UnboundedSender<EvalJob>,
+    recent_turns: &mut Vec<String>,
+    input: &str,
+) -> Option<oneshot::Receiver<()>> {
     let memories = match memory::recall(
         &app.db,
         &app.embedder,
@@ -193,23 +395,16 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[error] {e}");
-            return;
+            return None;
         }
     };
 
-    let llm2 = app.llm.clone();
-    let db2 = Arc::clone(&app.db);
-    let log2 = Arc::clone(&app.log);
-    let embedder2 = Arc::clone(&app.embedder);
     let previous_user_engram_text = recent_turns
         .last()
         .and_then(|t| extract_user_engram_text(t));
     let chat_text = format!("User: {input}\nAssistant: {reply}");
     let engram_text = format!("User: {input}");
-    let assistant_reply_owned = reply;
-    let user_input_owned = input.to_owned();
     let context_for_eval: Vec<String> = recent_turns.clone();
-    let lifecycle_cfg = app.config.lifecycle.clone();
 
     let eval_turns = app.config.chat.eval_context_turns;
     recent_turns.push(chat_text.clone());
@@ -217,127 +412,28 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
         recent_turns.remove(0);
     }
 
-    tokio::spawn(async move {
-        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-        match llm::evaluate(&llm2, &chat_text, &context_for_eval).await {
-            Ok(score) => {
-                if score.retraction {
-                    if let Some(target_content) = previous_user_engram_text.as_deref() {
-                        let mut deleted = None;
-                        for attempt in 0..3 {
-                            match db2.delete_latest_engram_by_content(target_content) {
-                                Ok(id) if id.is_some() => {
-                                    deleted = id;
-                                    break;
-                                }
-                                Ok(_) if attempt < 2 => {
-                                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                                }
-                                Ok(_) => break,
-                                Err(e) => {
-                                    let _ = writeln!(
-                                        log2.lock().unwrap(),
-                                        "[{ts}] retraction delete error: {e}"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-
-                        match deleted {
-                            Some(id) => {
-                                let _ = writeln!(
-                                    log2.lock().unwrap(),
-                                    "[{ts}] retraction: deleted engram #{id} ({target_content}) — {}",
-                                    score.reasoning
-                                );
-                            }
-                            None => {
-                                let _ = writeln!(
-                                    log2.lock().unwrap(),
-                                    "[{ts}] retraction: no matching previous engram for `{target_content}` — {}",
-                                    score.reasoning
-                                );
-                            }
-                        }
-                    } else {
-                        let _ = writeln!(
-                            log2.lock().unwrap(),
-                            "[{ts}] retraction: skipped (no previous turn context) — {}",
-                            score.reasoning
-                        );
-                    }
-                }
-
-                let emotion = Emotion::from_str_checked(
-                    &score
-                        .emotions
-                        .first()
-                        .map(|e| e.emotion.clone())
-                        .unwrap_or_else(|| "neutral".to_owned()),
-                )
-                .unwrap_or(Emotion::Neutral);
-
-                let embedding = embedder2.embed(&user_input_owned).ok();
-
-                match db2.insert_engram(
-                    &engram_text,
-                    emotion,
-                    score.importance,
-                    embedding.as_deref(),
-                ) {
-                    Ok(id) => {
-                        let _ = writeln!(
-                            log2.lock().unwrap(),
-                            "[{ts}] id={id} importance={:.2} emotion={} retraction={} emb={} — {}",
-                            score.importance,
-                            emotion,
-                            score.retraction,
-                            embedding.is_some(),
-                            score.reasoning
-                        );
-
-                        if let Err(e) =
-                            persona::evolve_after_turn(&db2, &assistant_reply_owned, &score)
-                        {
-                            let _ =
-                                writeln!(log2.lock().unwrap(), "[{ts}] persona evolve error: {e}");
-                        }
-
-                        match memory::lifecycle::run_maintenance(&db2, &lifecycle_cfg) {
-                            Ok(stats)
-                                if !stats.skipped
-                                    && (stats.decayed > 0
-                                        || stats.deleted > 0
-                                        || stats.overflow_after_gc > 0) =>
-                            {
-                                let _ = writeln!(
-                                    log2.lock().unwrap(),
-                                    "[{ts}] lifecycle: decayed={} deleted={} overflow={}",
-                                    stats.decayed,
-                                    stats.deleted,
-                                    stats.overflow_after_gc
-                                );
-                            }
-                            Ok(_) => {}
-                            Err(e) => {
-                                let _ =
-                                    writeln!(log2.lock().unwrap(), "[{ts}] lifecycle error: {e}");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = writeln!(log2.lock().unwrap(), "[{ts}] eval error: {e}");
-                    }
-                }
-            }
-            Err(e) => {
-                let _ = writeln!(log2.lock().unwrap(), "[{ts}] eval error: {e}");
-            }
-        }
-    });
+    let (done_tx, done_rx) = oneshot::channel();
+    let job = EvalJob {
+        llm: app.llm.clone(),
+        db: Arc::clone(&app.db),
+        log: Arc::clone(&app.log),
+        embedder: Arc::clone(&app.embedder),
+        chat_text,
+        engram_text,
+        assistant_reply: reply,
+        user_input: input.to_owned(),
+        context_for_eval,
+        previous_user_engram_text,
+        lifecycle_cfg: app.config.lifecycle.clone(),
+        done_tx,
+    };
+    if let Err(e) = eval_tx.send(job) {
+        eprintln!("[error] failed to queue eval job: {e}");
+        return None;
+    }
 
     println!();
+    Some(done_rx)
 }
 
 /// Parse test file, seed chat turns, wait for eval, then verify recall.
@@ -346,7 +442,13 @@ async fn chat_turn(app: &App, recent_turns: &mut Vec<String>, input: &str) {
 /// - `# ...` → comment (skipped)
 /// - `? ...` → recall verification query (run after seeding)
 /// - anything else → seed message (sent as chat turn)
-async fn run_test(app: &App, path: &str, recent_turns: &mut Vec<String>) {
+async fn run_test(
+    app: &App,
+    eval_tx: &mpsc::UnboundedSender<EvalJob>,
+    path: &str,
+    recent_turns: &mut Vec<String>,
+    pending_eval_tasks: &mut Vec<oneshot::Receiver<()>>,
+) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -374,12 +476,18 @@ async fn run_test(app: &App, path: &str, recent_turns: &mut Vec<String>) {
     println!("── seed: {path} ({} messages) ──", seeds.len());
     for (i, msg) in seeds.iter().enumerate() {
         println!("[{}/{}] {msg}", i + 1, seeds.len());
-        chat_turn(app, recent_turns, msg).await;
+        if let Some(done_rx) = chat_turn(app, eval_tx, recent_turns, msg).await {
+            pending_eval_tasks.push(done_rx);
+        }
     }
 
     // Wait for background eval tasks
-    println!("── waiting for eval tasks (15s) ──");
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    println!(
+        "── waiting for eval tasks ({}) ──",
+        pending_eval_tasks.len()
+    );
+    let completed = wait_eval_tasks(pending_eval_tasks).await;
+    println!("── eval tasks done: {completed} ──");
 
     let engram_count = app.db.get_all_engrams().map(|v| v.len()).unwrap_or(0);
     println!("── engrams in DB: {engram_count} ──\n");
@@ -389,12 +497,13 @@ async fn run_test(app: &App, path: &str, recent_turns: &mut Vec<String>) {
         println!("── recall verification ({} queries) ──", queries.len());
         for query in &queries {
             println!("  Q: {query}");
+            let min_importance = test_min_importance(query, app.config.recall.min_importance);
             let memories = memory::recall(
                 &app.db,
                 &app.embedder,
                 query,
                 3,
-                app.config.recall.min_importance,
+                min_importance,
                 app.config.recall.cosine_weight,
             )
             .unwrap_or_default();
@@ -404,7 +513,10 @@ async fn run_test(app: &App, path: &str, recent_turns: &mut Vec<String>) {
                 for m in &memories {
                     let preview: String = m.content.chars().take(80).collect();
                     let ellipsis = if m.content.len() > 80 { "…" } else { "" };
-                    println!("  → [{:.2}] {preview}{ellipsis}", m.relevance);
+                    println!(
+                        "  → [rank={:.2} cos={:.2} imp={:.2}] {preview}{ellipsis}",
+                        m.score, m.relevance, m.importance
+                    );
                 }
             }
             println!();
