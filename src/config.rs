@@ -36,7 +36,7 @@ pub struct LlmProvidersConfig {
 }
 
 /// Shared profile fields for each LLM provider.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct LlmProviderProfile {
     /// Chat model identifier to use for inference and evaluation.
@@ -115,16 +115,6 @@ impl Default for LlmProvidersConfig {
                 api_key: String::new(),
                 base_url: None,
             },
-        }
-    }
-}
-
-impl Default for LlmProviderProfile {
-    fn default() -> Self {
-        Self {
-            model: String::new(),
-            api_key: String::new(),
-            base_url: None,
         }
     }
 }
