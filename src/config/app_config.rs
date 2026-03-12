@@ -71,6 +71,8 @@ pub struct RecallConfig {
 pub struct ChatConfig {
     pub context_window: i64,
     pub eval_context_turns: usize,
+    /// Max concurrent background evaluation tasks.
+    pub eval_concurrency: usize,
     pub default_system_prompt: String,
 }
 
@@ -166,6 +168,7 @@ impl Default for ChatConfig {
         Self {
             context_window: 20,
             eval_context_turns: 3,
+            eval_concurrency: 4,
             default_system_prompt: "You are a thoughtful assistant with emotional awareness."
                 .to_owned(),
         }

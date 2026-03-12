@@ -6,7 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 
 use crate::config::{AppConfig, LifecycleConfig};
 use crate::db::PgramDb;
@@ -268,10 +268,16 @@ pub async fn run() -> Result<(), String> {
         config,
     };
 
+    let eval_concurrency = app.config.chat.eval_concurrency;
     let (eval_tx, mut eval_rx) = mpsc::unbounded_channel::<EvalJob>();
     let eval_worker = tokio::spawn(async move {
+        let sem = Arc::new(Semaphore::new(eval_concurrency));
         while let Some(job) = eval_rx.recv().await {
-            process_eval_job(job).await;
+            let permit = sem.clone().acquire_owned().await.unwrap();
+            tokio::spawn(async move {
+                process_eval_job(job).await;
+                drop(permit);
+            });
         }
     });
 

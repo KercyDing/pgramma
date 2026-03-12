@@ -64,6 +64,8 @@ cosine_weight = 0.7
 context_window = 20
 # Number of recent turns to keep for evaluator context.
 eval_context_turns = 3
+# Max concurrent background evaluation tasks (tune to your API rate limit).
+eval_concurrency = 4
 # Default system prompt (used on first run to seed the database).
 default_system_prompt = "You are a thoughtful assistant with emotional awareness."
 
